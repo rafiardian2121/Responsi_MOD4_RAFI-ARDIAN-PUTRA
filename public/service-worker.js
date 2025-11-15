@@ -1,6 +1,8 @@
-const CACHE_NAME = "fitnes-tracker-v4";
+const CACHE_NAME = "fitnes-tracker-v6";
+
 const PRECACHE = ["/", "/index.html", "/manifest.json", "/icons/icon.png"];
 
+// Install
 self.addEventListener("install", (event) => {
   console.log("SW Installed");
 
@@ -11,18 +13,18 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
+// Activate
 self.addEventListener("activate", (event) => {
   console.log("SW Activated");
-
   event.waitUntil(self.clients.claim());
 });
 
-// FETCH — SAFE FOR VERCEL (NETWORK FIRST)
+// Fetch
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // 🔹 Navigation requests → fallback ke index.html
+  // Handle page navigation
   if (req.mode === "navigate") {
     event.respondWith(
       caches.match("/index.html").then((cached) => {
@@ -32,21 +34,30 @@ self.addEventListener("fetch", (event) => {
     );
     return;
   }
-  // 🔹 Precached files → serve from cache
+
+  // ⭐ Cache Vite build assets
+  if (url.pathname.startsWith("/assets/")) {
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        return fetch(req)
+          .then((res) => {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+            return res;
+          })
+          .catch(() => null);
+      })
+    );
+    return;
+  }
+
+  // Precached items
   if (PRECACHE.includes(url.pathname)) {
     event.respondWith(caches.match(req));
     return;
   }
 
-  // 🔹 Semua asset /assets dari Vite → NETWORK ONLY
-  if (url.pathname.startsWith("/assets/")) {
-    return; // jangan cache → biarkan browser fetch online
-  }
-
-  // 🔹 Untuk request lainnya → NETWORK FIRST
-  event.respondWith(
-    fetch(req)
-      .then((res) => res)
-      .catch(() => caches.match(req))
-  );
+  // Network First
+  event.respondWith(fetch(req).catch(() => caches.match(req)));
 });
