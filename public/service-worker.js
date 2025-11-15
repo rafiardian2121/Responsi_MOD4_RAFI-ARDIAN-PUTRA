@@ -24,10 +24,14 @@ self.addEventListener("fetch", (event) => {
 
   // 🔹 Navigation requests → fallback ke index.html
   if (req.mode === "navigate") {
-    event.respondWith(fetch(req).catch(() => caches.match("/index.html")));
+    event.respondWith(
+      caches.match("/index.html").then((cached) => {
+        if (cached) return cached;
+        return fetch("/index.html");
+      })
+    );
     return;
   }
-
   // 🔹 Precached files → serve from cache
   if (PRECACHE.includes(url.pathname)) {
     event.respondWith(caches.match(req));
