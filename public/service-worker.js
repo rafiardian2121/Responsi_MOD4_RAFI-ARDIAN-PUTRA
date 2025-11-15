@@ -1,14 +1,12 @@
-const CACHE_NAME = "fitnes-tracker-v1";
-const ASSETS_TO_CACHE = [
-  "/",
-  "/index.html",
-  "/manifest.json",
-  "/icons/icon.png",
-];
+const CACHE_NAME = "fitnes-tracker-v3";
+
+// Pre-cache only safe files
+const PRECACHE = ["/", "/index.html", "/manifest.json", "/icons/icon.png"];
+
 self.addEventListener("install", (event) => {
   console.log("SW Installed");
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE))
   );
   self.skipWaiting();
 });
@@ -18,39 +16,43 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// FETCH — SAFE MODE FOR VITE BUNDLES
+// FETCH HANDLER – SAFE FOR VERCEL
 self.addEventListener("fetch", (event) => {
   const req = event.request;
+  const url = new URL(req.url);
 
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      if (cached) {
-        console.log("SW: Serving from cache:", req.url);
-        return cached;
-      }
+  // 1️⃣ DO NOT CACHE navigation requests
+  if (req.mode === "navigate") {
+    return event.respondWith(
+      fetch(req).catch(() => caches.match("/index.html"))
+    );
+  }
 
-      return fetch(req)
-        .then((networkRes) => {
-          // IMPORTANT: allow opaque responses
-          if (!networkRes || networkRes.status === 0) {
-            return networkRes;
-          }
+  // 2️⃣ Cache static vite assets: /assets/*.js /assets/*.css
+  if (url.pathname.startsWith("/assets/")) {
+    return event.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
 
-          const clone = networkRes.clone();
+        return fetch(req)
+          .then((res) => {
+            // Allow opaque responses
+            const resClone = res.clone();
+            caches
+              .open(CACHE_NAME)
+              .then((cache) => cache.put(req, resClone).catch(() => {}));
+            return res;
+          })
+          .catch(() => null);
+      })
+    );
+  }
 
-          caches.open(CACHE_NAME).then((cache) => {
-            cache
-              .put(req, clone)
-              .catch((err) => console.warn("SW: cache.put failed:", err));
-          });
+  // 3️⃣ Cache precached files
+  if (PRECACHE.includes(url.pathname)) {
+    return event.respondWith(caches.match(req));
+  }
 
-          return networkRes;
-        })
-        .catch(() => {
-          if (req.headers.get("accept")?.includes("text/html")) {
-            return caches.match("/index.html");
-          }
-        });
-    })
-  );
+  // 4️⃣ For all others: network only
+  return;
 });
